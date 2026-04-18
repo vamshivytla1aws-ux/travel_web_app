@@ -1,0 +1,80 @@
+import { ClipboardList } from "lucide-react";
+import { AppShell } from "@/components/app-shell";
+import { EnterprisePageHeader } from "@/components/enterprise/enterprise-page-header";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { requireModuleAccess } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { ensureTransportEnhancements } from "@/lib/schema-ensure";
+
+type Props = {
+  searchParams: Promise<{ entity?: string; action?: string }>;
+};
+
+export default async function LogsPage(props: Props) {
+  await requireModuleAccess("logs");
+  await ensureTransportEnhancements();
+  const searchParams = await props.searchParams;
+  const entity = searchParams.entity ? String(searchParams.entity) : "";
+  const action = searchParams.action ? String(searchParams.action) : "";
+
+  const logs = await query<{
+    id: number;
+    user_email: string | null;
+    action: string;
+    entity_type: string;
+    entity_id: number | null;
+    details: Record<string, unknown> | null;
+    created_at: string;
+  }>(
+    `SELECT id, user_email, action, entity_type, entity_id, details, created_at::text
+     FROM audit_logs
+     WHERE ($1 = '' OR entity_type = $1)
+       AND ($2 = '' OR action = $2)
+     ORDER BY created_at DESC
+     LIMIT 500`,
+    [entity, action],
+  );
+
+  return (
+    <AppShell>
+      <EnterprisePageHeader title="Activity Logs" subtitle="Track who changed what across operations" icon={ClipboardList} tag="Audit" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Log Portal</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form className="grid gap-3 md:grid-cols-3">
+            <input name="entity" placeholder="Entity (fuel_entry, user, trip)" className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" defaultValue={entity} />
+            <input name="action" placeholder="Action (create, update, delete)" className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" defaultValue={action} />
+            <button className="h-9 rounded-md bg-primary px-4 text-sm text-primary-foreground">Filter</button>
+          </form>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Entity</TableHead>
+                <TableHead>Entity ID</TableHead>
+                <TableHead>Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.rows.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell>{new Date(log.created_at).toLocaleString()}</TableCell>
+                  <TableCell>{log.user_email ?? "system"}</TableCell>
+                  <TableCell>{log.action}</TableCell>
+                  <TableCell>{log.entity_type}</TableCell>
+                  <TableCell>{log.entity_id ?? "-"}</TableCell>
+                  <TableCell className="max-w-[420px] truncate">{log.details ? JSON.stringify(log.details) : "-"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </AppShell>
+  );
+}
